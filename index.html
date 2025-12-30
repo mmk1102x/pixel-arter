@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Arter</title>
+    <style>
+        :root {
+            --bg-color: #f0f4f8;
+            --panel-color: #ffffff;
+            --primary-color: #4a90e2;
+            --border-color: #ddd;
+            --pixel-size: 20px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        /* Controls Bar */
+        .controls {
+            background: var(--panel-color);
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 15px;
+            z-index: 10;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #555;
+        }
+
+        input[type="number"] {
+            width: 50px;
+            padding: 4px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        input[type="color"] {
+            border: none;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            background: none;
+            padding: 0;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        button:active { transform: scale(0.98); }
+        button:hover { filter: brightness(1.1); }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        
+        button#clear-btn { background-color: #e74c3c; }
+        button#download-btn { background-color: #27ae60; }
+        button#download-ico-btn { background-color: #8e44ad; }
+        button#grid-toggle-btn { background-color: #7f8c8d; }
+        button#copy-json-btn { background-color: #f39c12; }
+        
+        .history-btn { background-color: #34495e; }
+
+        .instructions {
+            font-size: 0.8rem; 
+            color: #666; 
+            margin-bottom: 10px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Canvas Container */
+        #canvas-container {
+            flex: 1;
+            width: 100%;
+            max-width: 90vw;
+            border: 2px solid #ccc;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
+            background-color: #e5e5e5;
+            overflow: hidden;
+            position: relative;
+            cursor: default;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .grid {
+            display: grid;
+            background-color: #ccc; 
+            gap: 1px; 
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            flex: none; 
+            transform-origin: center center;
+        }
+
+        .grid.hide-grid {
+            gap: 0;
+            background-color: transparent;
+        }
+
+        .pixel {
+            background-color: #fff;
+            width: var(--pixel-size);
+            height: var(--pixel-size);
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Pixel Arter</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>H:</label>
+            <input type="number" id="input-height" value="32" min="1" max="100">
+        </div>
+        <div class="control-group">
+            <label>W:</label>
+            <input type="number" id="input-width" value="32" min="1" max="100">
+        </div>
+        <button id="create-btn">New</button>
+        
+        <div class="control-group" style="margin: 0 5px; border-left: 1px solid #ddd; padding-left: 5px;">
+            <input type="color" id="color-picker" value="#000000">
+        </div>
+
+        <button id="undo-btn" class="history-btn" title="Ctrl+Z">↶</button>
+        <button id="redo-btn" class="history-btn" title="Ctrl+Y">↷</button>
+
+        <button id="grid-toggle-btn">Grid</button>
+        <button id="clear-btn">Clear</button>
+        <button id="download-btn">PNG</button>
+        <button id="download-ico-btn">ICO</button>
+        <button id="copy-json-btn">JSON</button>
+    </div>
+
+    <div class="instructions">
+        <span>🖱️ <b>Left:</b> Draw</span>
+        <span>🖱️ <b>Right:</b> Erase</span>
+        <span>🖱️ <b>Middle:</b> Pan</span>
+        <span>🖱️ <b>Wheel:</b> Zoom</span>
+        <span>⌨️ <b>Ctrl+Z/Y:</b> Undo/Redo</span>
+    </div>
+
+    <div id="canvas-container">
+        <div id="pixel-canvas" class="grid"></div>
+    </div>
+
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+    <script>
+        const container = document.getElementById('canvas-container');
+        const canvasDiv = document.getElementById('pixel-canvas');
+        const heightInput = document.getElementById('input-height');
+        const widthInput = document.getElementById('input-width');
+        const colorPicker = document.getElementById('color-picker');
+        
+        // Buttons
+        const createBtn = document.getElementById('create-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const gridToggleBtn = document.getElementById('grid-toggle-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const downloadIcoBtn = document.getElementById('download-ico-btn');
+        const copyJsonBtn = document.getElementById('copy-json-btn');
+        const undoBtn = document.getElementById('undo-btn');
+        const redoBtn = document.getElementById('redo-btn');
+
+        let isDrawing = false;
+        let isErasing = false;
+        let currentPixelSize = 20;
+
+        // --- HISTORY STATE ---
+        let history = [];
+        let historyStep = -1;
+        const MAX_HISTORY = 50;
+
+        function saveState() {
+            if (historyStep < history.length - 1) {
+                history = history.slice(0, historyStep + 1);
+            }
+            const currentPixels = Array.from(document.querySelectorAll('.pixel')).map(p => p.style.backgroundColor);
+            history.push(currentPixels);
+            if (history.length > MAX_HISTORY) history.shift(); 
+            else historyStep++;
+            updateButtons();
+        }
+
+        function restoreState(pixelColors) {
+            const pixels = document.querySelectorAll('.pixel');
+            pixels.forEach((p, index) => {
+                p.style.backgroundColor = pixelColors[index];
+            });
+        }
+
+        function undo() {
+            if (historyStep > 0) {
+                historyStep--;
+                restoreState(history[historyStep]);
+                updateButtons();
+            }
+        }
+
+        function redo() {
+            if (historyStep < history.length - 1) {
+                historyStep++;
+                restoreState(history[historyStep]);
+                updateButtons();
+            }
+        }
+
+        function updateButtons() {
+            undoBtn.disabled = historyStep <= 0;
+            redoBtn.disabled = historyStep >= history.length - 1;
+        }
+
+        // --- GRID GEN ---
+        function makeGrid() {
+            canvasDiv.innerHTML = '';
+            history = [];
+            historyStep = -1;
+
+            const height = parseInt(heightInput.value);
+            const width = parseInt(widthInput.value);
+
+            canvasDiv.style.gridTemplateColumns = `repeat(${width}, 1fr)`;
+            canvasDiv.style.width = 'fit-content'; 
+
+            for (let i = 0; i < height * width; i++) {
+                const pixel = document.createElement('div');
+                pixel.classList.add('pixel');
+                pixel.style.backgroundColor = 'rgb(255, 255, 255)'; 
+
+                pixel.addEventListener('mousedown', (e) => {
+                    if (e.button === 1) return; 
+                    e.preventDefault();
+                    if (e.button === 2) {
+                        isErasing = true;
+                        pixel.style.backgroundColor = '#ffffff';
+                    } else if (e.button === 0) {
+                        isDrawing = true;
+                        pixel.style.backgroundColor = colorPicker.value;
+                    }
+                });
+
+                pixel.addEventListener('mouseover', () => {
+                    if (isDrawing) pixel.style.backgroundColor = colorPicker.value;
+                    else if (isErasing) pixel.style.backgroundColor = '#ffffff';
+                });
+                
+                pixel.addEventListener('contextmenu', (e) => e.preventDefault());
+                canvasDiv.appendChild(pixel);
+            }
+            saveState();
+            
+            container.scrollLeft = 0;
+            container.scrollTop = 0;
+            currentPixelSize = 20;
+            updateZoom();
+        }
+
+        // --- LISTENERS ---
+        window.addEventListener('mouseup', () => {
+            if (isDrawing || isErasing) {
+                isDrawing = false;
+                isErasing = false;
+                saveState();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                e.shiftKey ? redo() : undo();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        });
+
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+        createBtn.addEventListener('click', makeGrid);
+        clearBtn.addEventListener('click', () => {
+            document.querySelectorAll('.pixel').forEach(p => p.style.backgroundColor = '#ffffff');
+            saveState();
+        });
+
+        // --- ZOOM ---
+        function updateZoom() {
+            document.documentElement.style.setProperty('--pixel-size', `${currentPixelSize}px`);
+        }
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.deltaY < 0) currentPixelSize += 2;
+            else currentPixelSize -= 2;
+            if (currentPixelSize < 4) currentPixelSize = 4;
+            if (currentPixelSize > 100) currentPixelSize = 100;
+            updateZoom();
+        }, { passive: false });
+
+        // --- PANNING ---
+        let isPanning = false;
+        let startX, startY, scrollLeft, scrollTop;
+
+        container.addEventListener('mousedown', (e) => {
+            if (e.button === 1) {
+                e.preventDefault();
+                isPanning = true;
+                container.style.cursor = 'grabbing';
+                startX = e.pageX - container.offsetLeft;
+                startY = e.pageY - container.offsetTop;
+                scrollLeft = container.scrollLeft;
+                scrollTop = container.scrollTop;
+            }
+        });
+
+        container.addEventListener('mouseleave', () => { isPanning = false; container.style.cursor = 'default'; });
+        container.addEventListener('mouseup', (e) => { if(e.button===1) { isPanning = false; container.style.cursor = 'default'; }});
+        
+        container.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            e.preventDefault();
+            const x = e.pageX - container.offsetLeft;
+            const y = e.pageY - container.offsetTop;
+            const walkX = (x - startX);
+            const walkY = (y - startY);
+            container.scrollLeft = scrollLeft - walkX;
+            container.scrollTop = scrollTop - walkY;
+        });
+
+        // --- GRID TOGGLE ---
+        gridToggleBtn.addEventListener('click', () => canvasDiv.classList.toggle('hide-grid'));
+
+        // --- EXPORT IMAGES ---
+        function downloadBlob(blob, filename) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        downloadBtn.addEventListener('click', () => {
+            const wasGridHidden = canvasDiv.classList.contains('hide-grid');
+            canvasDiv.classList.add('hide-grid');
+            html2canvas(canvasDiv, { backgroundColor: null }).then(canvas => {
+                canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
+                if(!wasGridHidden) canvasDiv.classList.remove('hide-grid');
+            });
+        });
+
+        downloadIcoBtn.addEventListener('click', () => {
+            const wasGridHidden = canvasDiv.classList.contains('hide-grid');
+            canvasDiv.classList.add('hide-grid');
+            html2canvas(canvasDiv, { backgroundColor: null }).then(canvas => {
+                canvas.toBlob(async (blob) => {
+                    const icoBlob = await createIcoFromPngBlob(blob, canvas.width, canvas.height);
+                    downloadBlob(icoBlob, 'favicon.ico');
+                }, 'image/png');
+                if(!wasGridHidden) canvasDiv.classList.remove('hide-grid');
+            });
+        });
+
+        async function createIcoFromPngBlob(pngBlob, width, height) {
+            const pngData = new Uint8Array(await pngBlob.arrayBuffer());
+            const fileSize = pngData.length;
+            const header = new Uint8Array([0, 0, 1, 0, 1, 0]);
+            const entry = new DataView(new ArrayBuffer(16));
+            const w = width >= 256 ? 0 : width;
+            const h = height >= 256 ? 0 : height;
+            entry.setUint8(0, w); entry.setUint8(1, h);
+            entry.setUint8(2, 0); entry.setUint8(3, 0);
+            entry.setUint16(4, 1, true); entry.setUint16(6, 32, true);
+            entry.setUint32(8, fileSize, true); entry.setUint32(12, 22, true);
+            return new Blob([header, entry, pngData], { type: 'image/vnd.microsoft.icon' });
+        }
+
+        // --- EXPORT JSON ---
+        function rgbToHex(col) {
+            if(col.charAt(0)=='r'){
+                col=col.replace('rgb(','').replace(')','').split(',');
+                var r=parseInt(col[0], 10).toString(16);
+                var g=parseInt(col[1], 10).toString(16);
+                var b=parseInt(col[2], 10).toString(16);
+                r=r.length==1?'0'+r:r; g=g.length==1?'0'+g:g; b=b.length==1?'0'+b:b;
+                return '#'+r+g+b;
+            }
+            return col;
+        }
+
+        copyJsonBtn.addEventListener('click', () => {
+            const width = parseInt(widthInput.value);
+            const height = parseInt(heightInput.value);
+            const pixels = Array.from(document.querySelectorAll('.pixel')).map(p => {
+                return rgbToHex(p.style.backgroundColor);
+            });
+
+            const data = {
+                width: width,
+                height: height,
+                pixels: pixels
+            };
+
+            const jsonString = JSON.stringify(data, null, 2);
+            navigator.clipboard.writeText(jsonString).then(() => {
+                const originalText = copyJsonBtn.innerText;
+                copyJsonBtn.innerText = "Copied!";
+                copyJsonBtn.style.backgroundColor = "#27ae60";
+                setTimeout(() => {
+                    copyJsonBtn.innerText = originalText;
+                    copyJsonBtn.style.backgroundColor = "#f39c12";
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+                alert("Failed to copy JSON to clipboard.");
+            });
+        });
+
+        // Init
+        window.onload = makeGrid;
+    </script>
+</body>
+</html>
