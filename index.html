@@ -78,6 +78,13 @@
             background: none;
             padding: 0;
         }
+        
+        select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
 
         button {
             background-color: var(--primary-color);
@@ -125,12 +132,8 @@
             display: block;
         }
 
-        .dropdown-btn {
-            background-color: #27ae60; /* Green for Export */
-        }
-        .import-btn-main {
-            background-color: #d35400; /* Orange for Import */
-        }
+        .dropdown-btn { background-color: #27ae60; }
+        .import-btn-main { background-color: #d35400; }
 
         .dropdown-content button {
             background: none;
@@ -157,7 +160,6 @@
             justify-content: center;
         }
 
-        /* Canvas Container */
         #canvas-container {
             flex: 1;
             width: 100%;
@@ -183,18 +185,8 @@
             margin: auto; 
         }
 
-        .grid.hide-grid {
-            gap: 0;
-            background-color: transparent;
-        }
-
-        .pixel {
-            background-color: #fff;
-            width: var(--pixel-size);
-            height: var(--pixel-size);
-            user-select: none;
-        }
-        
+        .grid.hide-grid { gap: 0; background-color: transparent; }
+        .pixel { background-color: #fff; width: var(--pixel-size); height: var(--pixel-size); user-select: none; }
         body.is-panning #canvas-container { cursor: grabbing; }
         body.space-pressed #canvas-container { cursor: grab; }
 
@@ -222,23 +214,13 @@
         }
         .modal-header { font-weight: bold; font-size: 1.2rem; color: #333; }
         textarea#import-text {
-            width: 100%;
-            height: 150px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 0.9rem;
-            resize: vertical;
-            box-sizing: border-box;
+            width: 100%; height: 150px; padding: 10px;
+            border: 1px solid #ddd; border-radius: 4px;
+            font-family: monospace; font-size: 0.9rem;
+            resize: vertical; box-sizing: border-box;
         }
-        .modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
         .hidden { display: none !important; }
-        
     </style>
 </head>
 <body>
@@ -269,8 +251,16 @@
         <!-- EXPORT DROPDOWN -->
         <div class="dropdown">
             <button class="dropdown-btn">Export ▼</button>
-            <div class="dropdown-content">
-                <button id="download-png-btn">Export PNG</button>
+            <div class="dropdown-content" style="min-width: 160px;">
+                <div style="padding: 5px 10px; font-size: 0.8rem; color: #666; border-bottom: 1px solid #eee;">
+                    Scale:
+                    <select id="export-scale" style="width: 100%; margin-top: 3px;">
+                        <option value="1">1x (Native)</option>
+                        <option value="10">10x</option>
+                        <option value="20" selected>20x</option>
+                    </select>
+                </div>
+                <button id="download-png-btn">Export PNG (Meta)</button>
                 <button id="download-ico-btn">Export ICO</button>
                 <button id="copy-json-btn">Copy JSON Text</button>
                 <button id="save-json-file-btn">Save JSON File</button>
@@ -281,12 +271,11 @@
         <div class="dropdown">
             <button class="import-btn-main">Import ▼</button>
             <div class="dropdown-content">
-                <button id="import-json-btn">Paste JSON Text</button>
                 <button id="import-png-btn">Upload PNG</button>
+                <button id="import-json-btn">Paste JSON Text</button>
             </div>
         </div>
         
-        <!-- Hidden file inputs -->
         <input type="file" id="file-input-png" style="display: none;" accept="image/png">
     </div>
 
@@ -315,424 +304,337 @@
     </div>
 
     <script>
-        const container = document.getElementById('canvas-container');
         const canvasDiv = document.getElementById('pixel-canvas');
         const heightInput = document.getElementById('input-height');
         const widthInput = document.getElementById('input-width');
         const colorPicker = document.getElementById('color-picker');
+        const container = document.getElementById('canvas-container');
         
-        // Buttons
         const createBtn = document.getElementById('create-btn');
         const clearBtn = document.getElementById('clear-btn');
         const gridToggleBtn = document.getElementById('grid-toggle-btn');
         const undoBtn = document.getElementById('undo-btn');
         const redoBtn = document.getElementById('redo-btn');
         
-        // Export Menu Items
         const downloadPngBtn = document.getElementById('download-png-btn');
         const downloadIcoBtn = document.getElementById('download-ico-btn');
         const copyJsonBtn = document.getElementById('copy-json-btn');
         const saveJsonFileBtn = document.getElementById('save-json-file-btn');
+        const exportScaleSelect = document.getElementById('export-scale');
         
-        // Import Menu Items & Elements
         const importJsonBtn = document.getElementById('import-json-btn');
         const importPngBtn = document.getElementById('import-png-btn');
         const fileInputPng = document.getElementById('file-input-png');
         
-        // Modal Elements
         const importModal = document.getElementById('import-modal');
         const importText = document.getElementById('import-text');
         const cancelImportBtn = document.getElementById('cancel-import-btn');
         const loadTextBtn = document.getElementById('load-text-btn');
 
-        let isDrawing = false;
-        let isErasing = false;
-        let isSpacePressed = false;
+        let isDrawing = false, isErasing = false, isSpacePressed = false;
         let currentPixelSize = 20;
-
-        // --- HISTORY STATE ---
-        let history = [];
-        let historyStep = -1;
+        let history = [], historyStep = -1;
         const MAX_HISTORY = 50;
 
-        function saveState() {
-            if (historyStep < history.length - 1) {
-                history = history.slice(0, historyStep + 1);
+        // --- BINARY HELPERS (CRC Table & Metadata) ---
+        const crcTable = [];
+        for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+            crcTable[n] = c;
+        }
+        function crc32(buf) {
+            let crc = 0xFFFFFFFF;
+            for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ buf[i]) & 0xFF];
+            return crc ^ 0xFFFFFFFF;
+        }
+
+        // Inject tEXt chunk into PNG Blob
+        async function injectMetadata(blob, key, text) {
+            const buffer = await blob.arrayBuffer();
+            const view = new Uint8Array(buffer);
+            
+            // Create the tEXt chunk
+            const keyArr = new TextEncoder().encode(key);
+            const textArr = new TextEncoder().encode(text);
+            const chunkData = new Uint8Array(keyArr.length + 1 + textArr.length);
+            chunkData.set(keyArr, 0);
+            chunkData[keyArr.length] = 0; // Null separator
+            chunkData.set(textArr, keyArr.length + 1);
+            
+            const chunkLen = chunkData.length;
+            const chunkType = new TextEncoder().encode("tEXt");
+            
+            // Chunk structure: Length(4) + Type(4) + Data(N) + CRC(4)
+            const fullChunk = new Uint8Array(4 + 4 + chunkLen + 4);
+            const dv = new DataView(fullChunk.buffer);
+            dv.setUint32(0, chunkLen, false); // Length
+            fullChunk.set(chunkType, 4);      // Type
+            fullChunk.set(chunkData, 8);      // Data
+            
+            // Calculate CRC on Type + Data
+            const crcInput = new Uint8Array(4 + chunkLen);
+            crcInput.set(chunkType, 0);
+            crcInput.set(chunkData, 4);
+            const crcVal = crc32(crcInput);
+            dv.setUint32(8 + chunkLen, crcVal, false); // CRC
+
+            // Insert after IHDR (usually ends at byte 33 if standard)
+            // Or just find the first spot after 8 byte signature + IHDR chunk
+            // IHDR is: 4 len + 4 type + 13 data + 4 crc = 25 bytes.
+            // Sig (8) + IHDR (25) = 33.
+            
+            const finalBuffer = new Uint8Array(buffer.byteLength + fullChunk.length);
+            finalBuffer.set(view.slice(0, 33), 0);
+            finalBuffer.set(fullChunk, 33);
+            finalBuffer.set(view.slice(33), 33 + fullChunk.length);
+
+            return new Blob([finalBuffer], { type: 'image/png' });
+        }
+
+        // Extract metadata
+        async function extractMetadata(file) {
+            const buffer = await file.arrayBuffer();
+            const view = new DataView(buffer);
+            let offset = 8; // Skip PNG signature
+
+            while (offset < buffer.byteLength) {
+                const len = view.getUint32(offset, false);
+                const type = new TextDecoder().decode(new Uint8Array(buffer, offset + 4, 4));
+                
+                if (type === 'tEXt') {
+                    const data = new Uint8Array(buffer, offset + 8, len);
+                    // Find null separator
+                    let nullIndex = -1;
+                    for(let i=0; i<len; i++) { if(data[i]===0){ nullIndex=i; break; } }
+                    
+                    if(nullIndex > -1) {
+                        const key = new TextDecoder().decode(data.slice(0, nullIndex));
+                        if(key === "PixelArterData") {
+                            const val = new TextDecoder().decode(data.slice(nullIndex+1));
+                            return val;
+                        }
+                    }
+                }
+                offset += 12 + len; // 4 len + 4 type + len data + 4 crc
             }
+            return null;
+        }
+
+        // --- HISTORY & STATE ---
+        function saveState() {
+            if (historyStep < history.length - 1) history = history.slice(0, historyStep + 1);
             const currentPixels = Array.from(document.querySelectorAll('.pixel')).map(p => p.style.backgroundColor);
             history.push(currentPixels);
-            if (history.length > MAX_HISTORY) history.shift(); 
-            else historyStep++;
+            if (history.length > MAX_HISTORY) history.shift(); else historyStep++;
             updateButtons();
         }
-
         function restoreState(pixelColors) {
             const pixels = document.querySelectorAll('.pixel');
-            pixels.forEach((p, index) => {
-                if (pixels[index]) p.style.backgroundColor = pixelColors[index];
-            });
+            pixels.forEach((p, i) => { if (pixels[i]) p.style.backgroundColor = pixelColors[i]; });
         }
-
-        function undo() {
-            if (historyStep > 0) {
-                historyStep--;
-                restoreState(history[historyStep]);
-                updateButtons();
-            }
-        }
-
-        function redo() {
-            if (historyStep < history.length - 1) {
-                historyStep++;
-                restoreState(history[historyStep]);
-                updateButtons();
-            }
-        }
-
-        function updateButtons() {
-            undoBtn.disabled = historyStep <= 0;
-            redoBtn.disabled = historyStep >= history.length - 1;
-        }
-
-        // --- HELPERS ---
+        function undo() { if (historyStep > 0) { historyStep--; restoreState(history[historyStep]); updateButtons(); } }
+        function redo() { if (historyStep < history.length - 1) { historyStep++; restoreState(history[historyStep]); updateButtons(); } }
+        function updateButtons() { undoBtn.disabled = historyStep <= 0; redoBtn.disabled = historyStep >= history.length - 1; }
+        
         function rgbToHex(col) {
-            if(!col || col === 'transparent' || col === 'rgba(0, 0, 0, 0)') return '#ffffff';
+            if(!col || col==='transparent') return '#ffffff';
             if(col.startsWith('#')) return col;
-            if(col.startsWith('rgb')){
-                let parts = col.replace('rgb(','').replace(')','').replace('rgba(','').split(',');
-                let r=parseInt(parts[0], 10).toString(16);
-                let g=parseInt(parts[1], 10).toString(16);
-                let b=parseInt(parts[2], 10).toString(16);
-                r=r.length==1?'0'+r:r; g=g.length==1?'0'+g:g; b=b.length==1?'0'+b:b;
-                return '#'+r+g+b;
-            }
-            return '#ffffff';
+            let p = col.replace(/[^\d,]/g,'').split(',');
+            if(p.length < 3) return '#ffffff';
+            let r=parseInt(p[0]).toString(16).padStart(2,'0');
+            let g=parseInt(p[1]).toString(16).padStart(2,'0');
+            let b=parseInt(p[2]).toString(16).padStart(2,'0');
+            return '#'+r+g+b;
         }
+        function componentToHex(c) { return c.toString(16).padStart(2, '0'); }
 
-        function componentToHex(c) {
-            var hex = c.toString(16);
-            return hex.length == 1 ? "0" + hex : hex;
-        }
-
-        // --- GRID GEN ---
+        // --- CORE GRID ---
         function makeGrid() {
             canvasDiv.innerHTML = '';
-            history = [];
-            historyStep = -1;
-
-            const height = parseInt(heightInput.value);
-            const width = parseInt(widthInput.value);
-
-            canvasDiv.style.gridTemplateColumns = `repeat(${width}, 1fr)`;
-            canvasDiv.style.width = 'fit-content'; 
-
-            for (let i = 0; i < height * width; i++) {
+            history = []; historyStep = -1;
+            const h = parseInt(heightInput.value), w = parseInt(widthInput.value);
+            canvasDiv.style.gridTemplateColumns = `repeat(${w}, 1fr)`;
+            canvasDiv.style.width = 'fit-content';
+            
+            for (let i = 0; i < h * w; i++) {
                 const pixel = document.createElement('div');
                 pixel.classList.add('pixel');
-                pixel.style.backgroundColor = 'rgb(255, 255, 255)'; 
-
+                pixel.style.backgroundColor = 'rgb(255, 255, 255)';
                 pixel.addEventListener('mousedown', (e) => {
                     if (isSpacePressed) return;
                     e.preventDefault();
-
-                    if (e.button === 1) { // Middle Click
+                    if (e.button === 1) { // Middle
                         e.stopPropagation();
-                        const currentColor = pixel.style.backgroundColor;
-                        colorPicker.value = rgbToHex(currentColor);
-                        return;
-                    }
-
-                    if (e.button === 2) { // Right Click
-                        isErasing = true;
-                        pixel.style.backgroundColor = '#ffffff';
-                    } else if (e.button === 0) { // Left Click
-                        isDrawing = true;
-                        pixel.style.backgroundColor = colorPicker.value;
+                        colorPicker.value = rgbToHex(pixel.style.backgroundColor);
+                    } else if (e.button === 2) {
+                        isErasing = true; pixel.style.backgroundColor = '#ffffff';
+                    } else if (e.button === 0) {
+                        isDrawing = true; pixel.style.backgroundColor = colorPicker.value;
                     }
                 });
-
                 pixel.addEventListener('mouseover', () => {
-                    if (isSpacePressed) return; 
+                    if (isSpacePressed) return;
                     if (isDrawing) pixel.style.backgroundColor = colorPicker.value;
                     else if (isErasing) pixel.style.backgroundColor = '#ffffff';
                 });
-                
-                pixel.addEventListener('contextmenu', (e) => e.preventDefault());
+                pixel.addEventListener('contextmenu', e => e.preventDefault());
                 canvasDiv.appendChild(pixel);
             }
             saveState();
-            container.scrollLeft = 0;
-            container.scrollTop = 0;
-            currentPixelSize = 20;
-            updateZoom();
+            container.scrollLeft = 0; container.scrollTop = 0;
+            currentPixelSize = 20; updateZoom();
         }
 
-        // --- GLOBAL LISTENERS ---
-        window.addEventListener('mouseup', () => {
-            if (isDrawing || isErasing) {
-                isDrawing = false;
-                isErasing = false;
-                saveState();
-            }
-        });
-
+        // --- INPUTS & EVENTS ---
+        window.addEventListener('mouseup', () => { if(isDrawing||isErasing){ isDrawing=false; isErasing=false; saveState(); } });
         document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                e.shiftKey ? redo() : undo();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-                e.preventDefault();
-                redo();
-            }
-            if (e.code === 'Space' && !e.repeat) {
-                isSpacePressed = true;
-                document.body.classList.add('space-pressed');
-            }
+            if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z') { e.preventDefault(); e.shiftKey?redo():undo(); }
+            if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='y') { e.preventDefault(); redo(); }
+            if (e.code === 'Space' && !e.repeat) { isSpacePressed = true; document.body.classList.add('space-pressed'); }
         });
-
-        document.addEventListener('keyup', (e) => {
-            if (e.code === 'Space') {
-                isSpacePressed = false;
-                document.body.classList.remove('space-pressed');
-                isDrawing = false;
-            }
-        });
-
-        // --- PANNING LOGIC ---
+        document.addEventListener('keyup', (e) => { if(e.code==='Space'){ isSpacePressed=false; document.body.classList.remove('space-pressed'); isDrawing=false; } });
+        
         let startX, startY, scrollLeft, scrollTop;
-
         container.addEventListener('mousedown', (e) => {
             if (e.button === 1 || (isSpacePressed && e.button === 0)) {
-                e.preventDefault();
-                document.body.classList.add('is-panning');
-                startX = e.clientX;
-                startY = e.clientY;
-                scrollLeft = container.scrollLeft;
-                scrollTop = container.scrollTop;
+                e.preventDefault(); document.body.classList.add('is-panning');
+                startX = e.clientX; startY = e.clientY;
+                scrollLeft = container.scrollLeft; scrollTop = container.scrollTop;
                 document.addEventListener('mousemove', onMouseMove);
                 document.addEventListener('mouseup', onMouseUp);
             }
         });
+        function onMouseMove(e) { e.preventDefault(); container.scrollLeft = scrollLeft - (e.clientX - startX); container.scrollTop = scrollTop - (e.clientY - startY); }
+        function onMouseUp() { document.body.classList.remove('is-panning'); document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); }
 
-        function onMouseMove(e) {
-            e.preventDefault();
-            const x = e.clientX;
-            const y = e.clientY;
-            const walkX = (x - startX);
-            const walkY = (y - startY);
-            container.scrollLeft = scrollLeft - walkX;
-            container.scrollTop = scrollTop - walkY;
-        }
-
-        function onMouseUp() {
-            document.body.classList.remove('is-panning');
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-        }
-
-        // --- BUTTONS ---
         undoBtn.addEventListener('click', undo);
         redoBtn.addEventListener('click', redo);
         createBtn.addEventListener('click', makeGrid);
-        clearBtn.addEventListener('click', () => {
-            document.querySelectorAll('.pixel').forEach(p => p.style.backgroundColor = '#ffffff');
-            saveState();
-        });
-        
+        clearBtn.addEventListener('click', () => { document.querySelectorAll('.pixel').forEach(p => p.style.backgroundColor = '#ffffff'); saveState(); });
         gridToggleBtn.addEventListener('click', () => canvasDiv.classList.toggle('hide-grid'));
+        function updateZoom() { document.documentElement.style.setProperty('--pixel-size', `${currentPixelSize}px`); }
+        container.addEventListener('wheel', (e) => { e.preventDefault(); currentPixelSize += (Math.sign(e.deltaY)*-1)*2; if(currentPixelSize<2)currentPixelSize=2; if(currentPixelSize>120)currentPixelSize=120; updateZoom(); }, {passive:false});
 
-        function updateZoom() {
-            document.documentElement.style.setProperty('--pixel-size', `${currentPixelSize}px`);
+        // --- EXPORT/IMPORT ---
+        function getJsonData() {
+            return {
+                width: parseInt(widthInput.value),
+                height: parseInt(heightInput.value),
+                pixels: Array.from(document.querySelectorAll('.pixel')).map(p => rgbToHex(p.style.backgroundColor))
+            };
         }
-        container.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const delta = Math.sign(e.deltaY) * -1;
-            currentPixelSize += (delta * 2);
-            if (currentPixelSize < 2) currentPixelSize = 2;
-            if (currentPixelSize > 120) currentPixelSize = 120;
-            updateZoom();
-        }, { passive: false });
-
-
-        // ==========================================
-        // --- EXPORT ENGINE ---
-        // ==========================================
-
-        function downloadBlob(blob, filename) {
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = filename;
-            link.click();
-            URL.revokeObjectURL(link.href);
-        }
-
-        function generateCanvas(scale = 1) {
-            const w = parseInt(widthInput.value);
-            const h = parseInt(heightInput.value);
-            const canvas = document.createElement('canvas');
-            canvas.width = w * scale;
-            canvas.height = h * scale;
-            const ctx = canvas.getContext('2d');
-            const pixels = document.querySelectorAll('.pixel');
-            pixels.forEach((p, i) => {
-                const colIndex = i % w;
-                const rowIndex = Math.floor(i / w);
-                const color = p.style.backgroundColor;
-                ctx.fillStyle = color && color !== '' ? color : '#ffffff';
-                ctx.fillRect(colIndex * scale, rowIndex * scale, scale, scale);
+        function generateCanvas(scale) {
+            const w = parseInt(widthInput.value), h = parseInt(heightInput.value);
+            const cvs = document.createElement('canvas'); cvs.width = w*scale; cvs.height = h*scale;
+            const ctx = cvs.getContext('2d');
+            document.querySelectorAll('.pixel').forEach((p, i) => {
+                const c = p.style.backgroundColor;
+                ctx.fillStyle = (c && c!=='') ? c : '#ffffff';
+                ctx.fillRect((i%w)*scale, Math.floor(i/w)*scale, scale, scale);
             });
-            return canvas;
+            return cvs;
         }
+        function downloadBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
+        // EXPORT PNG WITH METADATA
         downloadPngBtn.addEventListener('click', () => {
-            const canvas = generateCanvas(20); 
-            canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
+            const scale = parseInt(exportScaleSelect.value);
+            const canvas = generateCanvas(scale);
+            const jsonData = JSON.stringify(getJsonData());
+            
+            canvas.toBlob(async (blob) => {
+                // Inject the JSON data into the PNG
+                const taggedBlob = await injectMetadata(blob, "PixelArterData", jsonData);
+                downloadBlob(taggedBlob, 'pixel-art.png');
+            });
         });
 
         downloadIcoBtn.addEventListener('click', () => {
             const canvas = generateCanvas(1);
-            canvas.toBlob(async (blob) => {
-                const icoBlob = await createIcoFromPngBlob(blob, canvas.width, canvas.height);
-                downloadBlob(icoBlob, 'favicon.ico');
+            canvas.toBlob(async (b) => {
+                const arr = new Uint8Array(await b.arrayBuffer());
+                const head = new Uint8Array([0,0,1,0,1,0]);
+                const entry = new DataView(new ArrayBuffer(16));
+                const w = canvas.width>=256?0:canvas.width, h = canvas.height>=256?0:canvas.height;
+                entry.setUint8(0,w); entry.setUint8(1,h); entry.setUint16(4,1,true); entry.setUint16(6,32,true);
+                entry.setUint32(8,arr.length,true); entry.setUint32(12,22,true);
+                downloadBlob(new Blob([head,entry,arr], {type:'image/vnd.microsoft.icon'}), 'favicon.ico');
             }, 'image/png');
         });
 
-        async function createIcoFromPngBlob(pngBlob, width, height) {
-            const pngData = new Uint8Array(await pngBlob.arrayBuffer());
-            const fileSize = pngData.length;
-            const header = new Uint8Array([0, 0, 1, 0, 1, 0]);
-            const entry = new DataView(new ArrayBuffer(16));
-            const w = width >= 256 ? 0 : width;
-            const h = height >= 256 ? 0 : height;
-            entry.setUint8(0, w); entry.setUint8(1, h);
-            entry.setUint8(2, 0); entry.setUint8(3, 0);
-            entry.setUint16(4, 1, true); entry.setUint16(6, 32, true);
-            entry.setUint32(8, fileSize, true); entry.setUint32(12, 22, true);
-            return new Blob([header, entry, pngData], { type: 'image/vnd.microsoft.icon' });
-        }
+        copyJsonBtn.addEventListener('click', () => navigator.clipboard.writeText(JSON.stringify(getJsonData())).then(()=>alert("Copied!")));
+        saveJsonFileBtn.addEventListener('click', () => downloadBlob(new Blob([JSON.stringify(getJsonData())],{type:"application/json"}), 'pixel-art.json'));
 
-        // --- JSON EXPORT ---
-
-        function getJsonData() {
-            const width = parseInt(widthInput.value);
-            const height = parseInt(heightInput.value);
-            const pixels = Array.from(document.querySelectorAll('.pixel')).map(p => {
-                return rgbToHex(p.style.backgroundColor);
-            });
-            return { width, height, pixels };
-        }
-
-        copyJsonBtn.addEventListener('click', () => {
-            const data = getJsonData();
-            const jsonString = JSON.stringify(data, null, 2);
-            navigator.clipboard.writeText(jsonString).then(() => alert("JSON Copied to Clipboard"));
-        });
-
-        saveJsonFileBtn.addEventListener('click', () => {
-            const data = getJsonData();
-            const jsonString = JSON.stringify(data, null, 2);
-            const blob = new Blob([jsonString], { type: "application/json" });
-            downloadBlob(blob, 'pixel-art.json');
-        });
-
-        // ==========================================
-        // --- IMPORT ENGINE ---
-        // ==========================================
-
-        // 1. JSON TEXT IMPORT
-        importJsonBtn.addEventListener('click', () => {
-            importModal.classList.remove('hidden');
-            importText.value = '';
-            importText.focus();
-        });
-
-        cancelImportBtn.addEventListener('click', () => {
-            importModal.classList.add('hidden');
-        });
-
-        loadTextBtn.addEventListener('click', () => {
-            try {
-                const data = JSON.parse(importText.value);
-                if (!data.width || !data.height || !data.pixels) throw new Error("Invalid Format");
-                
-                widthInput.value = data.width;
-                heightInput.value = data.height;
-                makeGrid();
-
-                const pixels = document.querySelectorAll('.pixel');
-                data.pixels.forEach((color, index) => {
-                    if (pixels[index]) pixels[index].style.backgroundColor = color;
-                });
-                saveState();
-                importModal.classList.add('hidden');
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        });
-        
-        // 2. PNG IMAGE IMPORT
-        importPngBtn.addEventListener('click', () => {
-            fileInputPng.click();
-        });
-
-        fileInputPng.addEventListener('change', (e) => {
+        // IMPORT PNG (Metadata or Visual)
+        importPngBtn.addEventListener('click', () => fileInputPng.click());
+        fileInputPng.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
+            // 1. Try to read metadata
+            try {
+                const metaJson = await extractMetadata(file);
+                if (metaJson) {
+                    const data = JSON.parse(metaJson);
+                    widthInput.value = data.width;
+                    heightInput.value = data.height;
+                    makeGrid();
+                    const pixels = document.querySelectorAll('.pixel');
+                    data.pixels.forEach((c, i) => { if(pixels[i]) pixels[i].style.backgroundColor = c; });
+                    saveState();
+                    fileInputPng.value = '';
+                    return; // Success, skip visual import
+                }
+            } catch (err) { console.log("Metadata read failed, trying visual", err); }
+
+            // 2. Fallback to Visual Import
             const reader = new FileReader();
-            reader.onload = (event) => {
+            reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
-                    // Limit dimensions to prevent browser crashes
-                    if (img.width > 100 || img.height > 100) {
-                        if (!confirm("Image is larger than 100x100. It will be cropped or resized. Continue?")) return;
-                    }
-                    
-                    // Set inputs to image size (clamped to 100)
-                    const w = Math.min(img.width, 100);
-                    const h = Math.min(img.height, 100);
-                    
-                    widthInput.value = w;
-                    heightInput.value = h;
+                    let w = img.width, h = img.height;
+                    // Detect if it's likely a scaled up export from this tool (e.g. 320x320)
+                    // If dimensions are multiples of current inputs, maybe ask? 
+                    // For now, just import as 1:1 pixel mapping.
+                    if (w > 100 || h > 100) { if (!confirm(`Image is ${w}x${h}. Import large grid?`)) return; }
+                    widthInput.value = w; heightInput.value = h;
                     makeGrid();
-
-                    // Draw to temp canvas to read pixels
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = w;
-                    tempCanvas.height = h;
-                    const ctx = tempCanvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-
-                    const imgData = ctx.getImageData(0, 0, w, h).data;
+                    
+                    const cvs = document.createElement('canvas'); cvs.width = w; cvs.height = h;
+                    const ctx = cvs.getContext('2d'); ctx.drawImage(img,0,0);
+                    const d = ctx.getImageData(0,0,w,h).data;
                     const pixels = document.querySelectorAll('.pixel');
-
-                    for (let i = 0; i < pixels.length; i++) {
-                        const r = imgData[i * 4];
-                        const g = imgData[i * 4 + 1];
-                        const b = imgData[i * 4 + 2];
-                        const a = imgData[i * 4 + 3];
-
-                        if (a < 128) {
-                            pixels[i].style.backgroundColor = '#ffffff'; // Transparent treated as white
-                        } else {
-                            const hex = "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
-                            pixels[i].style.backgroundColor = hex;
-                        }
+                    for(let i=0; i<pixels.length; i++) {
+                        const a = d[i*4+3];
+                        if(a<128) pixels[i].style.backgroundColor='#ffffff';
+                        else pixels[i].style.backgroundColor='#'+componentToHex(d[i*4])+componentToHex(d[i*4+1])+componentToHex(d[i*4+2]);
                     }
                     saveState();
                 };
-                img.src = event.target.result;
+                img.src = evt.target.result;
             };
             reader.readAsDataURL(file);
-            fileInputPng.value = ''; // Reset input
+            fileInputPng.value = '';
         });
 
-        // Init
-        window.onload = makeGrid;
-        importModal.addEventListener('click', (e) => {
-            if(e.target === importModal) importModal.classList.add('hidden');
+        // Import JSON Text
+        importJsonBtn.addEventListener('click', () => { importModal.classList.remove('hidden'); importText.value=''; importText.focus(); });
+        cancelImportBtn.addEventListener('click', () => importModal.classList.add('hidden'));
+        loadTextBtn.addEventListener('click', () => {
+            try {
+                const d = JSON.parse(importText.value);
+                widthInput.value = d.width; heightInput.value = d.height;
+                makeGrid();
+                const pixels = document.querySelectorAll('.pixel');
+                d.pixels.forEach((c, i) => { if(pixels[i]) pixels[i].style.backgroundColor = c; });
+                saveState();
+                importModal.classList.add('hidden');
+            } catch(e) { alert("Invalid JSON"); }
         });
+        importModal.addEventListener('click', e => { if(e.target===importModal) importModal.classList.add('hidden'); });
+
+        window.onload = makeGrid;
     </script>
 </body>
 </html>
