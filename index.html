@@ -89,6 +89,7 @@
             font-weight: 600;
             font-size: 0.85rem;
             transition: background 0.2s, transform 0.1s;
+            white-space: nowrap;
         }
 
         button:active { transform: scale(0.98); }
@@ -96,16 +97,55 @@
         button:disabled { background-color: #ccc; cursor: not-allowed; }
         
         button#clear-btn { background-color: #e74c3c; }
-        button#download-btn { background-color: #27ae60; }
-        button#download-ico-btn { background-color: #8e44ad; }
         button#grid-toggle-btn { background-color: #7f8c8d; }
-        
-        /* JSON Group Colors */
-        button#copy-json-btn { background-color: #f39c12; }
-        button#save-json-file-btn { background-color: #d35400; }
-        button#import-btn { background-color: #34495e; }
-        
         .history-btn { background-color: #34495e; }
+
+        /* DROPDOWN MENU STYLES */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #fff;
+            min-width: 140px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            border-radius: 8px;
+            z-index: 100;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+
+        .dropdown-btn {
+            background-color: #27ae60; /* Green for Export */
+        }
+        .import-btn-main {
+            background-color: #d35400; /* Orange for Import */
+        }
+
+        .dropdown-content button {
+            background: none;
+            color: #333;
+            width: 100%;
+            text-align: left;
+            padding: 10px 15px;
+            border-radius: 0;
+            font-weight: normal;
+        }
+        
+        .dropdown-content button:hover {
+            background-color: #f1f1f1;
+            filter: none;
+        }
 
         .instructions {
             font-size: 0.8rem; 
@@ -225,13 +265,29 @@
 
         <button id="grid-toggle-btn">Grid</button>
         <button id="clear-btn">Clear</button>
-        <button id="download-btn">PNG</button>
-        <button id="download-ico-btn">ICO</button>
         
-        <!-- JSON Controls -->
-        <button id="copy-json-btn" title="Copy Text to Clipboard">Copy JSON</button>
-        <button id="save-json-file-btn" title="Download .json file">Save File</button>
-        <button id="import-btn" title="Paste Text or Upload">Import JSON</button>
+        <!-- EXPORT DROPDOWN -->
+        <div class="dropdown">
+            <button class="dropdown-btn">Export ▼</button>
+            <div class="dropdown-content">
+                <button id="download-png-btn">Export PNG</button>
+                <button id="download-ico-btn">Export ICO</button>
+                <button id="copy-json-btn">Copy JSON Text</button>
+                <button id="save-json-file-btn">Save JSON File</button>
+            </div>
+        </div>
+
+        <!-- IMPORT DROPDOWN -->
+        <div class="dropdown">
+            <button class="import-btn-main">Import ▼</button>
+            <div class="dropdown-content">
+                <button id="import-json-btn">Paste JSON Text</button>
+                <button id="import-png-btn">Upload PNG</button>
+            </div>
+        </div>
+        
+        <!-- Hidden file inputs -->
+        <input type="file" id="file-input-png" style="display: none;" accept="image/png">
     </div>
 
     <div class="instructions">
@@ -245,7 +301,7 @@
         <div id="pixel-canvas" class="grid"></div>
     </div>
 
-    <!-- IMPORT MODAL -->
+    <!-- IMPORT JSON MODAL -->
     <div id="import-modal" class="modal-overlay hidden">
         <div class="modal-content">
             <div class="modal-header">Import JSON</div>
@@ -269,15 +325,19 @@
         const createBtn = document.getElementById('create-btn');
         const clearBtn = document.getElementById('clear-btn');
         const gridToggleBtn = document.getElementById('grid-toggle-btn');
-        const downloadBtn = document.getElementById('download-btn');
-        const downloadIcoBtn = document.getElementById('download-ico-btn');
         const undoBtn = document.getElementById('undo-btn');
         const redoBtn = document.getElementById('redo-btn');
         
-        // JSON Buttons
+        // Export Menu Items
+        const downloadPngBtn = document.getElementById('download-png-btn');
+        const downloadIcoBtn = document.getElementById('download-ico-btn');
         const copyJsonBtn = document.getElementById('copy-json-btn');
         const saveJsonFileBtn = document.getElementById('save-json-file-btn');
-        const importBtn = document.getElementById('import-btn');
+        
+        // Import Menu Items & Elements
+        const importJsonBtn = document.getElementById('import-json-btn');
+        const importPngBtn = document.getElementById('import-png-btn');
+        const fileInputPng = document.getElementById('file-input-png');
         
         // Modal Elements
         const importModal = document.getElementById('import-modal');
@@ -335,7 +395,6 @@
         }
 
         // --- HELPERS ---
-        // Moved up so it can be used by the eyedropper
         function rgbToHex(col) {
             if(!col || col === 'transparent' || col === 'rgba(0, 0, 0, 0)') return '#ffffff';
             if(col.startsWith('#')) return col;
@@ -348,6 +407,11 @@
                 return '#'+r+g+b;
             }
             return '#ffffff';
+        }
+
+        function componentToHex(c) {
+            var hex = c.toString(16);
+            return hex.length == 1 ? "0" + hex : hex;
         }
 
         // --- GRID GEN ---
@@ -368,27 +432,20 @@
                 pixel.style.backgroundColor = 'rgb(255, 255, 255)'; 
 
                 pixel.addEventListener('mousedown', (e) => {
-                    // 1. SPACE + CLICK = PAN (Handled by container, do nothing here)
                     if (isSpacePressed) return;
-
                     e.preventDefault();
 
-                    // 2. MIDDLE CLICK (Wheel) = PICK COLOR
-                    if (e.button === 1) {
-                        e.stopPropagation(); // Stop the container from "Panning" on this click
+                    if (e.button === 1) { // Middle Click
+                        e.stopPropagation();
                         const currentColor = pixel.style.backgroundColor;
-                        const hex = rgbToHex(currentColor);
-                        colorPicker.value = hex;
+                        colorPicker.value = rgbToHex(currentColor);
                         return;
                     }
 
-                    // 3. RIGHT CLICK = ERASE
-                    if (e.button === 2) {
+                    if (e.button === 2) { // Right Click
                         isErasing = true;
                         pixel.style.backgroundColor = '#ffffff';
-                    } 
-                    // 4. LEFT CLICK = DRAW
-                    else if (e.button === 0) {
+                    } else if (e.button === 0) { // Left Click
                         isDrawing = true;
                         pixel.style.backgroundColor = colorPicker.value;
                     }
@@ -446,7 +503,6 @@
         let startX, startY, scrollLeft, scrollTop;
 
         container.addEventListener('mousedown', (e) => {
-            // Pan if: Middle Click (on background) OR Left Click + Spacebar
             if (e.button === 1 || (isSpacePressed && e.button === 0)) {
                 e.preventDefault();
                 document.body.classList.add('is-panning');
@@ -500,7 +556,7 @@
 
 
         // ==========================================
-        // --- EXPORT/IMPORT ENGINE ---
+        // --- EXPORT ENGINE ---
         // ==========================================
 
         function downloadBlob(blob, filename) {
@@ -529,7 +585,7 @@
             return canvas;
         }
 
-        downloadBtn.addEventListener('click', () => {
+        downloadPngBtn.addEventListener('click', () => {
             const canvas = generateCanvas(20); 
             canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
         });
@@ -556,7 +612,7 @@
             return new Blob([header, entry, pngData], { type: 'image/vnd.microsoft.icon' });
         }
 
-        // --- JSON LOGIC ---
+        // --- JSON EXPORT ---
 
         function getJsonData() {
             const width = parseInt(widthInput.value);
@@ -567,22 +623,12 @@
             return { width, height, pixels };
         }
 
-        // 1. Copy Text
         copyJsonBtn.addEventListener('click', () => {
             const data = getJsonData();
             const jsonString = JSON.stringify(data, null, 2);
-            navigator.clipboard.writeText(jsonString).then(() => {
-                const originalText = copyJsonBtn.innerText;
-                copyJsonBtn.innerText = "Copied!";
-                copyJsonBtn.style.backgroundColor = "#27ae60";
-                setTimeout(() => {
-                    copyJsonBtn.innerText = originalText;
-                    copyJsonBtn.style.backgroundColor = "#f39c12";
-                }, 1500);
-            });
+            navigator.clipboard.writeText(jsonString).then(() => alert("JSON Copied to Clipboard"));
         });
 
-        // 2. Download File
         saveJsonFileBtn.addEventListener('click', () => {
             const data = getJsonData();
             const jsonString = JSON.stringify(data, null, 2);
@@ -590,10 +636,14 @@
             downloadBlob(blob, 'pixel-art.json');
         });
 
-        // 3. Import (Modal)
-        importBtn.addEventListener('click', () => {
+        // ==========================================
+        // --- IMPORT ENGINE ---
+        // ==========================================
+
+        // 1. JSON TEXT IMPORT
+        importJsonBtn.addEventListener('click', () => {
             importModal.classList.remove('hidden');
-            importText.value = ''; // clear previous
+            importText.value = '';
             importText.focus();
         });
 
@@ -602,44 +652,87 @@
         });
 
         loadTextBtn.addEventListener('click', () => {
-            const text = importText.value;
-            if(!text.trim()) return;
-
             try {
-                const data = JSON.parse(text);
-                if (!data.width || !data.height || !data.pixels) {
-                    alert('Invalid JSON format');
-                    return;
-                }
+                const data = JSON.parse(importText.value);
+                if (!data.width || !data.height || !data.pixels) throw new Error("Invalid Format");
                 
-                // Update inputs
                 widthInput.value = data.width;
                 heightInput.value = data.height;
-
-                // Create Grid
                 makeGrid();
 
-                // Fill Pixels
                 const pixels = document.querySelectorAll('.pixel');
                 data.pixels.forEach((color, index) => {
                     if (pixels[index]) pixels[index].style.backgroundColor = color;
                 });
-
-                saveState(); // Save to undo history
+                saveState();
                 importModal.classList.add('hidden');
-
             } catch (e) {
-                alert('Error parsing JSON: ' + e.message);
+                alert('Error: ' + e.message);
             }
         });
+        
+        // 2. PNG IMAGE IMPORT
+        importPngBtn.addEventListener('click', () => {
+            fileInputPng.click();
+        });
 
-        // Close modal on click outside
-        importModal.addEventListener('click', (e) => {
-            if(e.target === importModal) importModal.classList.add('hidden');
+        fileInputPng.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Limit dimensions to prevent browser crashes
+                    if (img.width > 100 || img.height > 100) {
+                        if (!confirm("Image is larger than 100x100. It will be cropped or resized. Continue?")) return;
+                    }
+                    
+                    // Set inputs to image size (clamped to 100)
+                    const w = Math.min(img.width, 100);
+                    const h = Math.min(img.height, 100);
+                    
+                    widthInput.value = w;
+                    heightInput.value = h;
+                    makeGrid();
+
+                    // Draw to temp canvas to read pixels
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = w;
+                    tempCanvas.height = h;
+                    const ctx = tempCanvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    const imgData = ctx.getImageData(0, 0, w, h).data;
+                    const pixels = document.querySelectorAll('.pixel');
+
+                    for (let i = 0; i < pixels.length; i++) {
+                        const r = imgData[i * 4];
+                        const g = imgData[i * 4 + 1];
+                        const b = imgData[i * 4 + 2];
+                        const a = imgData[i * 4 + 3];
+
+                        if (a < 128) {
+                            pixels[i].style.backgroundColor = '#ffffff'; // Transparent treated as white
+                        } else {
+                            const hex = "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+                            pixels[i].style.backgroundColor = hex;
+                        }
+                    }
+                    saveState();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+            fileInputPng.value = ''; // Reset input
         });
 
         // Init
         window.onload = makeGrid;
+        importModal.addEventListener('click', (e) => {
+            if(e.target === importModal) importModal.classList.add('hidden');
+        });
     </script>
 </body>
 </html>
