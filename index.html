@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pixel Arter</title>
+    
+    <!-- FAVICON LINK ADDED HERE -->
+    <link rel="icon" href="https://raw.githubusercontent.com/mmk1102x/pixel-arter/refs/heads/main/favicon.ico">
+
     <style>
         :root {
             --bg-color: #f0f4f8;
@@ -119,13 +123,12 @@
             border: 2px solid #ccc;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
             background-color: #e5e5e5;
-            overflow: hidden;
+            overflow: hidden; 
             position: relative;
-            cursor: default;
             border-radius: 8px;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            align-items: flex-start;
+            justify-content: flex-start;
         }
 
         .grid {
@@ -135,6 +138,7 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.2);
             flex: none; 
             transform-origin: center center;
+            margin: auto; 
         }
 
         .grid.hide-grid {
@@ -148,6 +152,11 @@
             height: var(--pixel-size);
             user-select: none;
         }
+        
+        /* Cursor States */
+        body.is-panning #canvas-container { cursor: grabbing; }
+        body.space-pressed #canvas-container { cursor: grab; }
+        
     </style>
 </head>
 <body>
@@ -157,11 +166,11 @@
     <div class="controls">
         <div class="control-group">
             <label>H:</label>
-            <input type="number" id="input-height" value="32" min="1" max="100">
+            <input type="number" id="input-height" value="16" min="1" max="100">
         </div>
         <div class="control-group">
             <label>W:</label>
-            <input type="number" id="input-width" value="32" min="1" max="100">
+            <input type="number" id="input-width" value="16" min="1" max="100">
         </div>
         <button id="create-btn">New</button>
         
@@ -182,7 +191,7 @@
     <div class="instructions">
         <span>🖱️ <b>Left:</b> Draw</span>
         <span>🖱️ <b>Right:</b> Erase</span>
-        <span>🖱️ <b>Middle:</b> Pan</span>
+        <span>🖱️ <b>Middle</b> (or Space+Left): Pan</span>
         <span>🖱️ <b>Wheel:</b> Zoom</span>
         <span>⌨️ <b>Ctrl+Z/Y:</b> Undo/Redo</span>
     </div>
@@ -190,8 +199,6 @@
     <div id="canvas-container">
         <div id="pixel-canvas" class="grid"></div>
     </div>
-
-    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 
     <script>
         const container = document.getElementById('canvas-container');
@@ -212,6 +219,7 @@
 
         let isDrawing = false;
         let isErasing = false;
+        let isSpacePressed = false;
         let currentPixelSize = 20;
 
         // --- HISTORY STATE ---
@@ -276,7 +284,8 @@
                 pixel.style.backgroundColor = 'rgb(255, 255, 255)'; 
 
                 pixel.addEventListener('mousedown', (e) => {
-                    if (e.button === 1) return; 
+                    if (e.button === 1 || isSpacePressed) return; 
+
                     e.preventDefault();
                     if (e.button === 2) {
                         isErasing = true;
@@ -288,6 +297,7 @@
                 });
 
                 pixel.addEventListener('mouseover', () => {
+                    if (isSpacePressed) return; 
                     if (isDrawing) pixel.style.backgroundColor = colorPicker.value;
                     else if (isErasing) pixel.style.backgroundColor = '#ffffff';
                 });
@@ -303,7 +313,7 @@
             updateZoom();
         }
 
-        // --- LISTENERS ---
+        // --- GLOBAL LISTENERS ---
         window.addEventListener('mouseup', () => {
             if (isDrawing || isErasing) {
                 isDrawing = false;
@@ -321,8 +331,53 @@
                 e.preventDefault();
                 redo();
             }
+            if (e.code === 'Space' && !e.repeat) {
+                isSpacePressed = true;
+                document.body.classList.add('space-pressed');
+            }
         });
 
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                isSpacePressed = false;
+                document.body.classList.remove('space-pressed');
+                isDrawing = false;
+            }
+        });
+
+        // --- PANNING LOGIC ---
+        let startX, startY, scrollLeft, scrollTop;
+
+        container.addEventListener('mousedown', (e) => {
+            if (e.button === 1 || (isSpacePressed && e.button === 0)) {
+                e.preventDefault();
+                document.body.classList.add('is-panning');
+                startX = e.clientX;
+                startY = e.clientY;
+                scrollLeft = container.scrollLeft;
+                scrollTop = container.scrollTop;
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            }
+        });
+
+        function onMouseMove(e) {
+            e.preventDefault();
+            const x = e.clientX;
+            const y = e.clientY;
+            const walkX = (x - startX);
+            const walkY = (y - startY);
+            container.scrollLeft = scrollLeft - walkX;
+            container.scrollTop = scrollTop - walkY;
+        }
+
+        function onMouseUp() {
+            document.body.classList.remove('is-panning');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+
+        // --- BUTTONS ---
         undoBtn.addEventListener('click', undo);
         redoBtn.addEventListener('click', redo);
         createBtn.addEventListener('click', makeGrid);
@@ -337,47 +392,42 @@
         }
         container.addEventListener('wheel', (e) => {
             e.preventDefault();
-            if (e.deltaY < 0) currentPixelSize += 2;
-            else currentPixelSize -= 2;
-            if (currentPixelSize < 4) currentPixelSize = 4;
-            if (currentPixelSize > 100) currentPixelSize = 100;
+            const delta = Math.sign(e.deltaY) * -1;
+            currentPixelSize += (delta * 2);
+            if (currentPixelSize < 2) currentPixelSize = 2;
+            if (currentPixelSize > 120) currentPixelSize = 120;
             updateZoom();
         }, { passive: false });
 
-        // --- PANNING ---
-        let isPanning = false;
-        let startX, startY, scrollLeft, scrollTop;
-
-        container.addEventListener('mousedown', (e) => {
-            if (e.button === 1) {
-                e.preventDefault();
-                isPanning = true;
-                container.style.cursor = 'grabbing';
-                startX = e.pageX - container.offsetLeft;
-                startY = e.pageY - container.offsetTop;
-                scrollLeft = container.scrollLeft;
-                scrollTop = container.scrollTop;
-            }
-        });
-
-        container.addEventListener('mouseleave', () => { isPanning = false; container.style.cursor = 'default'; });
-        container.addEventListener('mouseup', (e) => { if(e.button===1) { isPanning = false; container.style.cursor = 'default'; }});
-        
-        container.addEventListener('mousemove', (e) => {
-            if (!isPanning) return;
-            e.preventDefault();
-            const x = e.pageX - container.offsetLeft;
-            const y = e.pageY - container.offsetTop;
-            const walkX = (x - startX);
-            const walkY = (y - startY);
-            container.scrollLeft = scrollLeft - walkX;
-            container.scrollTop = scrollTop - walkY;
-        });
-
-        // --- GRID TOGGLE ---
         gridToggleBtn.addEventListener('click', () => canvasDiv.classList.toggle('hide-grid'));
 
-        // --- EXPORT IMAGES ---
+
+        // ==========================================
+        // --- EXPORT ENGINE (Canvas Based) ---
+        // ==========================================
+
+        function generateCanvas(scale = 1) {
+            const w = parseInt(widthInput.value);
+            const h = parseInt(heightInput.value);
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = w * scale;
+            canvas.height = h * scale;
+            const ctx = canvas.getContext('2d');
+
+            const pixels = document.querySelectorAll('.pixel');
+            pixels.forEach((p, i) => {
+                const colIndex = i % w;
+                const rowIndex = Math.floor(i / w);
+                const color = p.style.backgroundColor;
+                
+                ctx.fillStyle = color && color !== '' ? color : '#ffffff';
+                ctx.fillRect(colIndex * scale, rowIndex * scale, scale, scale);
+            });
+            
+            return canvas;
+        }
+
         function downloadBlob(blob, filename) {
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
@@ -386,43 +436,50 @@
             URL.revokeObjectURL(link.href);
         }
 
+        // 1. Export PNG (Scaled up for visibility)
         downloadBtn.addEventListener('click', () => {
-            const wasGridHidden = canvasDiv.classList.contains('hide-grid');
-            canvasDiv.classList.add('hide-grid');
-            html2canvas(canvasDiv, { backgroundColor: null }).then(canvas => {
-                canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
-                if(!wasGridHidden) canvasDiv.classList.remove('hide-grid');
-            });
+            const canvas = generateCanvas(20); 
+            canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
         });
 
+        // 2. Export ICO (Native resolution)
         downloadIcoBtn.addEventListener('click', () => {
-            const wasGridHidden = canvasDiv.classList.contains('hide-grid');
-            canvasDiv.classList.add('hide-grid');
-            html2canvas(canvasDiv, { backgroundColor: null }).then(canvas => {
-                canvas.toBlob(async (blob) => {
-                    const icoBlob = await createIcoFromPngBlob(blob, canvas.width, canvas.height);
-                    downloadBlob(icoBlob, 'favicon.ico');
-                }, 'image/png');
-                if(!wasGridHidden) canvasDiv.classList.remove('hide-grid');
-            });
+            const canvas = generateCanvas(1);
+            canvas.toBlob(async (blob) => {
+                const icoBlob = await createIcoFromPngBlob(blob, canvas.width, canvas.height);
+                downloadBlob(icoBlob, 'favicon.ico');
+            }, 'image/png');
         });
 
         async function createIcoFromPngBlob(pngBlob, width, height) {
             const pngData = new Uint8Array(await pngBlob.arrayBuffer());
             const fileSize = pngData.length;
-            const header = new Uint8Array([0, 0, 1, 0, 1, 0]);
+
+            const header = new Uint8Array([
+                0, 0,             // Reserved
+                1, 0,             // Type (1=ICO)
+                1, 0,             // Count (1 image)
+            ]);
+
             const entry = new DataView(new ArrayBuffer(16));
             const w = width >= 256 ? 0 : width;
             const h = height >= 256 ? 0 : height;
-            entry.setUint8(0, w); entry.setUint8(1, h);
-            entry.setUint8(2, 0); entry.setUint8(3, 0);
-            entry.setUint16(4, 1, true); entry.setUint16(6, 32, true);
-            entry.setUint32(8, fileSize, true); entry.setUint32(12, 22, true);
+
+            entry.setUint8(0, w);          // Width
+            entry.setUint8(1, h);          // Height
+            entry.setUint8(2, 0);          // Palette
+            entry.setUint8(3, 0);          // Reserved
+            entry.setUint16(4, 1, true);   // Planes
+            entry.setUint16(6, 32, true);  // BPP
+            entry.setUint32(8, fileSize, true); // Size
+            entry.setUint32(12, 22, true); // Offset
+
             return new Blob([header, entry, pngData], { type: 'image/vnd.microsoft.icon' });
         }
 
         // --- EXPORT JSON ---
         function rgbToHex(col) {
+            if(!col) return '#ffffff';
             if(col.charAt(0)=='r'){
                 col=col.replace('rgb(','').replace(')','').split(',');
                 var r=parseInt(col[0], 10).toString(16);
@@ -441,13 +498,9 @@
                 return rgbToHex(p.style.backgroundColor);
             });
 
-            const data = {
-                width: width,
-                height: height,
-                pixels: pixels
-            };
-
+            const data = { width, height, pixels };
             const jsonString = JSON.stringify(data, null, 2);
+            
             navigator.clipboard.writeText(jsonString).then(() => {
                 const originalText = copyJsonBtn.innerText;
                 copyJsonBtn.innerText = "Copied!";
@@ -456,10 +509,7 @@
                     copyJsonBtn.innerText = originalText;
                     copyJsonBtn.style.backgroundColor = "#f39c12";
                 }, 1500);
-            }).catch(err => {
-                console.error('Failed to copy text: ', err);
-                alert("Failed to copy JSON to clipboard.");
-            });
+            }).catch(err => alert("Failed to copy JSON."));
         });
 
         // Init
