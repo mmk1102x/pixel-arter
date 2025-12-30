@@ -126,13 +126,34 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.2);
             border-radius: 8px;
             z-index: 100;
-            overflow: hidden;
+            /* overflow: hidden; Removed to allow bridge */
             margin-top: 5px;
             border: 1px solid #eee;
         }
 
+        /* INVISIBLE BRIDGE to fix hover gap issue */
+        .dropdown-content::before {
+            content: "";
+            position: absolute;
+            top: -15px; /* Extends the hit area upwards to meet the button */
+            left: 0;
+            width: 100%;
+            height: 15px;
+            background: transparent;
+        }
+
         .dropdown:hover .dropdown-content {
             display: block;
+        }
+
+        /* Fix rounded corners on children since we removed overflow:hidden */
+        .dropdown-content > *:first-child {
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        .dropdown-content > *:last-child {
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
         }
 
         .dropdown-btn { background-color: #27ae60; }
@@ -527,7 +548,6 @@
             const cvs = document.createElement('canvas'); cvs.width = w*scale; cvs.height = h*scale;
             const ctx = cvs.getContext('2d');
             
-            // For JPEG, fill background white (otherwise it's black)
             if (fillBackground) {
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, cvs.width, cvs.height);
@@ -536,17 +556,9 @@
             document.querySelectorAll('.pixel').forEach((p, i) => {
                 const c = p.style.backgroundColor;
                 const isTransparent = !c || c === 'transparent' || c === 'rgba(0, 0, 0, 0)' || c === '#ffffff';
-                
                 if (!isTransparent) {
                     ctx.fillStyle = c;
                     ctx.fillRect((i%w)*scale, Math.floor(i/w)*scale, scale, scale);
-                } else if (fillBackground) {
-                    // It's white already
-                } else {
-                    // Do nothing (transparent) if PNG/WebP
-                    // Note: In this app 'white' is treated as eraser/transparent for logic, 
-                    // but we export white as transparent for PNG/WebP unless user actually drew white.
-                    // For simplicity: White pixels in UI = Transparent in PNG.
                 }
             });
             return cvs;
@@ -554,22 +566,17 @@
         
         function downloadBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
-        // --- GENERIC EXPORT IMAGE ---
         downloadImageBtn.addEventListener('click', () => {
             const scale = parseInt(exportScaleSelect.value);
-            const format = exportFormatSelect.value; // image/png, image/jpeg, image/webp
-            
-            // Determine extension
+            const format = exportFormatSelect.value;
             let ext = 'png';
             if(format === 'image/jpeg') ext = 'jpg';
             if(format === 'image/webp') ext = 'webp';
             
-            // Generate canvas (Fill BG for Jpeg)
             const isJpeg = format === 'image/jpeg';
             const canvas = generateCanvas(scale, isJpeg); 
             
             canvas.toBlob(async (blob) => {
-                // Only PNG supports our metadata hack cleanly
                 if (format === 'image/png') {
                     const jsonData = JSON.stringify(getJsonData());
                     const taggedBlob = await injectMetadata(blob, "PixelArterData", jsonData);
@@ -596,13 +603,11 @@
         copyJsonBtn.addEventListener('click', () => navigator.clipboard.writeText(JSON.stringify(getJsonData())).then(()=>alert("Copied!")));
         saveJsonFileBtn.addEventListener('click', () => downloadBlob(new Blob([JSON.stringify(getJsonData())],{type:"application/json"}), 'pixel-art.json'));
 
-        // IMPORT ANY IMAGE
         importImgBtn.addEventListener('click', () => fileInputImg.click());
         fileInputImg.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // 1. Try Metadata (Only if PNG)
             if (file.type === 'image/png') {
                 try {
                     const metaJson = await extractMetadata(file);
@@ -614,18 +619,16 @@
                         data.pixels.forEach((c, i) => { if(pixels[i]) pixels[i].style.backgroundColor = c; });
                         saveState();
                         fileInputImg.value = '';
-                        return; // Metadata success
+                        return;
                     }
                 } catch (err) { console.log("Metadata skipped:", err); }
             }
 
-            // 2. Visual Import Fallback (All formats)
             const reader = new FileReader();
             reader.onload = (evt) => {
                 const img = new Image();
                 img.onload = () => {
                     let w = img.width, h = img.height;
-                    // Auto-detect large images
                     if (w > 100 || h > 100) { if (!confirm(`Image is ${w}x${h}. Import?`)) return; }
                     widthInput.value = w; heightInput.value = h;
                     makeGrid();
