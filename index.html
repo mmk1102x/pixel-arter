@@ -79,13 +79,14 @@
             padding: 0;
         }
         
-        select {
+        select, input.scale-input {
             padding: 4px;
             border-radius: 4px;
             border: 1px solid var(--border-color);
             font-size: 0.85rem;
             width: 100%;
             margin-top: 2px;
+            box-sizing: border-box;
         }
 
         button {
@@ -126,7 +127,6 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.2);
             border-radius: 8px;
             z-index: 100;
-            /* overflow: hidden; Removed to allow bridge */
             margin-top: 5px;
             border: 1px solid #eee;
         }
@@ -135,7 +135,7 @@
         .dropdown-content::before {
             content: "";
             position: absolute;
-            top: -15px; /* Extends the hit area upwards to meet the button */
+            top: -15px; 
             left: 0;
             width: 100%;
             height: 15px;
@@ -146,7 +146,6 @@
             display: block;
         }
 
-        /* Fix rounded corners on children since we removed overflow:hidden */
         .dropdown-content > *:first-child {
             border-top-left-radius: 8px;
             border-top-right-radius: 8px;
@@ -293,12 +292,8 @@
                     </select>
                 </div>
                 <div class="dropdown-section">
-                    Scale:
-                    <select id="export-scale">
-                        <option value="1">1x (Native)</option>
-                        <option value="10">10x</option>
-                        <option value="20" selected>20x</option>
-                    </select>
+                    Scale (x):
+                    <input type="number" id="export-scale" class="scale-input" value="20" min="1" max="500">
                 </div>
                 <button id="download-image-btn"><b>Download Image</b></button>
                 <div style="border-top:1px solid #eee;"></div>
@@ -357,15 +352,13 @@
         const undoBtn = document.getElementById('undo-btn');
         const redoBtn = document.getElementById('redo-btn');
         
-        // Export Elements
         const downloadImageBtn = document.getElementById('download-image-btn');
         const downloadIcoBtn = document.getElementById('download-ico-btn');
         const copyJsonBtn = document.getElementById('copy-json-btn');
         const saveJsonFileBtn = document.getElementById('save-json-file-btn');
-        const exportScaleSelect = document.getElementById('export-scale');
+        const exportScaleInput = document.getElementById('export-scale');
         const exportFormatSelect = document.getElementById('export-format');
         
-        // Import Elements
         const importJsonBtn = document.getElementById('import-json-btn');
         const importImgBtn = document.getElementById('import-img-btn');
         const fileInputImg = document.getElementById('file-input-img');
@@ -380,7 +373,7 @@
         let history = [], historyStep = -1;
         const MAX_HISTORY = 50;
 
-        // --- BINARY HELPERS (CRC Table & Metadata) ---
+        // --- BINARY HELPERS ---
         const crcTable = [];
         for (let n = 0; n < 256; n++) {
             let c = n;
@@ -567,7 +560,14 @@
         function downloadBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
         downloadImageBtn.addEventListener('click', () => {
-            const scale = parseInt(exportScaleSelect.value);
+            let scale = parseInt(exportScaleInput.value);
+            if (isNaN(scale) || scale < 1) scale = 1;
+            
+            // Safety limit
+            if (scale * parseInt(widthInput.value) > 10000) {
+                if(!confirm("The output image will be huge. Continue?")) return;
+            }
+
             const format = exportFormatSelect.value;
             let ext = 'png';
             if(format === 'image/jpeg') ext = 'jpg';
