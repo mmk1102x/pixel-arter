@@ -237,9 +237,8 @@
     <div class="instructions">
         <span>🖱️ <b>Left:</b> Draw</span>
         <span>🖱️ <b>Right:</b> Erase</span>
-        <span>🖱️ <b>Middle</b> (or Space+Left): Pan</span>
-        <span>🖱️ <b>Wheel:</b> Zoom</span>
-        <span>⌨️ <b>Ctrl+Z/Y:</b> Undo/Redo</span>
+        <span>🖱️ <b>Wheel Click:</b> Pick Color</span>
+        <span>🖱️ <b>Space+Left:</b> Pan</span>
     </div>
 
     <div id="canvas-container">
@@ -335,6 +334,22 @@
             redoBtn.disabled = historyStep >= history.length - 1;
         }
 
+        // --- HELPERS ---
+        // Moved up so it can be used by the eyedropper
+        function rgbToHex(col) {
+            if(!col || col === 'transparent' || col === 'rgba(0, 0, 0, 0)') return '#ffffff';
+            if(col.startsWith('#')) return col;
+            if(col.startsWith('rgb')){
+                let parts = col.replace('rgb(','').replace(')','').replace('rgba(','').split(',');
+                let r=parseInt(parts[0], 10).toString(16);
+                let g=parseInt(parts[1], 10).toString(16);
+                let b=parseInt(parts[2], 10).toString(16);
+                r=r.length==1?'0'+r:r; g=g.length==1?'0'+g:g; b=b.length==1?'0'+b:b;
+                return '#'+r+g+b;
+            }
+            return '#ffffff';
+        }
+
         // --- GRID GEN ---
         function makeGrid() {
             canvasDiv.innerHTML = '';
@@ -353,12 +368,27 @@
                 pixel.style.backgroundColor = 'rgb(255, 255, 255)'; 
 
                 pixel.addEventListener('mousedown', (e) => {
-                    if (e.button === 1 || isSpacePressed) return; 
+                    // 1. SPACE + CLICK = PAN (Handled by container, do nothing here)
+                    if (isSpacePressed) return;
+
                     e.preventDefault();
+
+                    // 2. MIDDLE CLICK (Wheel) = PICK COLOR
+                    if (e.button === 1) {
+                        e.stopPropagation(); // Stop the container from "Panning" on this click
+                        const currentColor = pixel.style.backgroundColor;
+                        const hex = rgbToHex(currentColor);
+                        colorPicker.value = hex;
+                        return;
+                    }
+
+                    // 3. RIGHT CLICK = ERASE
                     if (e.button === 2) {
                         isErasing = true;
                         pixel.style.backgroundColor = '#ffffff';
-                    } else if (e.button === 0) {
+                    } 
+                    // 4. LEFT CLICK = DRAW
+                    else if (e.button === 0) {
                         isDrawing = true;
                         pixel.style.backgroundColor = colorPicker.value;
                     }
@@ -416,6 +446,7 @@
         let startX, startY, scrollLeft, scrollTop;
 
         container.addEventListener('mousedown', (e) => {
+            // Pan if: Middle Click (on background) OR Left Click + Spacebar
             if (e.button === 1 || (isSpacePressed && e.button === 0)) {
                 e.preventDefault();
                 document.body.classList.add('is-panning');
@@ -531,10 +562,7 @@
             const width = parseInt(widthInput.value);
             const height = parseInt(heightInput.value);
             const pixels = Array.from(document.querySelectorAll('.pixel')).map(p => {
-                // normalize colors
-                let c = p.style.backgroundColor;
-                if(!c) c = '#ffffff';
-                return c;
+                return rgbToHex(p.style.backgroundColor);
             });
             return { width, height, pixels };
         }
