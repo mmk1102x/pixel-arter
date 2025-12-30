@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pixel Arter</title>
-    
-    <!-- FAVICON LINK ADDED HERE -->
     <link rel="icon" href="https://raw.githubusercontent.com/mmk1102x/pixel-arter/refs/heads/main/favicon.ico">
 
     <style>
@@ -101,7 +99,11 @@
         button#download-btn { background-color: #27ae60; }
         button#download-ico-btn { background-color: #8e44ad; }
         button#grid-toggle-btn { background-color: #7f8c8d; }
+        
+        /* JSON Group Colors */
         button#copy-json-btn { background-color: #f39c12; }
+        button#save-json-file-btn { background-color: #d35400; }
+        button#import-btn { background-color: #34495e; }
         
         .history-btn { background-color: #34495e; }
 
@@ -153,9 +155,49 @@
             user-select: none;
         }
         
-        /* Cursor States */
         body.is-panning #canvas-container { cursor: grabbing; }
         body.space-pressed #canvas-container { cursor: grab; }
+
+        /* MODAL STYLES */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(2px);
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 500px;
+            max-width: 90%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .modal-header { font-weight: bold; font-size: 1.2rem; color: #333; }
+        textarea#import-text {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .hidden { display: none !important; }
         
     </style>
 </head>
@@ -185,7 +227,11 @@
         <button id="clear-btn">Clear</button>
         <button id="download-btn">PNG</button>
         <button id="download-ico-btn">ICO</button>
-        <button id="copy-json-btn">JSON</button>
+        
+        <!-- JSON Controls -->
+        <button id="copy-json-btn" title="Copy Text to Clipboard">Copy JSON</button>
+        <button id="save-json-file-btn" title="Download .json file">Save File</button>
+        <button id="import-btn" title="Paste Text or Upload">Import JSON</button>
     </div>
 
     <div class="instructions">
@@ -198,6 +244,19 @@
 
     <div id="canvas-container">
         <div id="pixel-canvas" class="grid"></div>
+    </div>
+
+    <!-- IMPORT MODAL -->
+    <div id="import-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">Import JSON</div>
+            <p style="font-size:0.9rem; color:#666; margin:0;">Paste your JSON text code below:</p>
+            <textarea id="import-text" placeholder='{"width": 16, "height": 16, "pixels": [...]}'></textarea>
+            <div class="modal-actions">
+                <button id="cancel-import-btn" style="background-color: #95a5a6;">Cancel</button>
+                <button id="load-text-btn">Load Text</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -213,9 +272,19 @@
         const gridToggleBtn = document.getElementById('grid-toggle-btn');
         const downloadBtn = document.getElementById('download-btn');
         const downloadIcoBtn = document.getElementById('download-ico-btn');
-        const copyJsonBtn = document.getElementById('copy-json-btn');
         const undoBtn = document.getElementById('undo-btn');
         const redoBtn = document.getElementById('redo-btn');
+        
+        // JSON Buttons
+        const copyJsonBtn = document.getElementById('copy-json-btn');
+        const saveJsonFileBtn = document.getElementById('save-json-file-btn');
+        const importBtn = document.getElementById('import-btn');
+        
+        // Modal Elements
+        const importModal = document.getElementById('import-modal');
+        const importText = document.getElementById('import-text');
+        const cancelImportBtn = document.getElementById('cancel-import-btn');
+        const loadTextBtn = document.getElementById('load-text-btn');
 
         let isDrawing = false;
         let isErasing = false;
@@ -241,7 +310,7 @@
         function restoreState(pixelColors) {
             const pixels = document.querySelectorAll('.pixel');
             pixels.forEach((p, index) => {
-                p.style.backgroundColor = pixelColors[index];
+                if (pixels[index]) p.style.backgroundColor = pixelColors[index];
             });
         }
 
@@ -285,7 +354,6 @@
 
                 pixel.addEventListener('mousedown', (e) => {
                     if (e.button === 1 || isSpacePressed) return; 
-
                     e.preventDefault();
                     if (e.button === 2) {
                         isErasing = true;
@@ -306,7 +374,6 @@
                 canvasDiv.appendChild(pixel);
             }
             saveState();
-            
             container.scrollLeft = 0;
             container.scrollTop = 0;
             currentPixelSize = 20;
@@ -385,8 +452,9 @@
             document.querySelectorAll('.pixel').forEach(p => p.style.backgroundColor = '#ffffff');
             saveState();
         });
+        
+        gridToggleBtn.addEventListener('click', () => canvasDiv.classList.toggle('hide-grid'));
 
-        // --- ZOOM ---
         function updateZoom() {
             document.documentElement.style.setProperty('--pixel-size', `${currentPixelSize}px`);
         }
@@ -399,34 +467,10 @@
             updateZoom();
         }, { passive: false });
 
-        gridToggleBtn.addEventListener('click', () => canvasDiv.classList.toggle('hide-grid'));
-
 
         // ==========================================
-        // --- EXPORT ENGINE (Canvas Based) ---
+        // --- EXPORT/IMPORT ENGINE ---
         // ==========================================
-
-        function generateCanvas(scale = 1) {
-            const w = parseInt(widthInput.value);
-            const h = parseInt(heightInput.value);
-            
-            const canvas = document.createElement('canvas');
-            canvas.width = w * scale;
-            canvas.height = h * scale;
-            const ctx = canvas.getContext('2d');
-
-            const pixels = document.querySelectorAll('.pixel');
-            pixels.forEach((p, i) => {
-                const colIndex = i % w;
-                const rowIndex = Math.floor(i / w);
-                const color = p.style.backgroundColor;
-                
-                ctx.fillStyle = color && color !== '' ? color : '#ffffff';
-                ctx.fillRect(colIndex * scale, rowIndex * scale, scale, scale);
-            });
-            
-            return canvas;
-        }
 
         function downloadBlob(blob, filename) {
             const link = document.createElement('a');
@@ -436,13 +480,29 @@
             URL.revokeObjectURL(link.href);
         }
 
-        // 1. Export PNG (Scaled up for visibility)
+        function generateCanvas(scale = 1) {
+            const w = parseInt(widthInput.value);
+            const h = parseInt(heightInput.value);
+            const canvas = document.createElement('canvas');
+            canvas.width = w * scale;
+            canvas.height = h * scale;
+            const ctx = canvas.getContext('2d');
+            const pixels = document.querySelectorAll('.pixel');
+            pixels.forEach((p, i) => {
+                const colIndex = i % w;
+                const rowIndex = Math.floor(i / w);
+                const color = p.style.backgroundColor;
+                ctx.fillStyle = color && color !== '' ? color : '#ffffff';
+                ctx.fillRect(colIndex * scale, rowIndex * scale, scale, scale);
+            });
+            return canvas;
+        }
+
         downloadBtn.addEventListener('click', () => {
             const canvas = generateCanvas(20); 
             canvas.toBlob(blob => downloadBlob(blob, 'pixel-art.png'));
         });
 
-        // 2. Export ICO (Native resolution)
         downloadIcoBtn.addEventListener('click', () => {
             const canvas = generateCanvas(1);
             canvas.toBlob(async (blob) => {
@@ -454,53 +514,35 @@
         async function createIcoFromPngBlob(pngBlob, width, height) {
             const pngData = new Uint8Array(await pngBlob.arrayBuffer());
             const fileSize = pngData.length;
-
-            const header = new Uint8Array([
-                0, 0,             // Reserved
-                1, 0,             // Type (1=ICO)
-                1, 0,             // Count (1 image)
-            ]);
-
+            const header = new Uint8Array([0, 0, 1, 0, 1, 0]);
             const entry = new DataView(new ArrayBuffer(16));
             const w = width >= 256 ? 0 : width;
             const h = height >= 256 ? 0 : height;
-
-            entry.setUint8(0, w);          // Width
-            entry.setUint8(1, h);          // Height
-            entry.setUint8(2, 0);          // Palette
-            entry.setUint8(3, 0);          // Reserved
-            entry.setUint16(4, 1, true);   // Planes
-            entry.setUint16(6, 32, true);  // BPP
-            entry.setUint32(8, fileSize, true); // Size
-            entry.setUint32(12, 22, true); // Offset
-
+            entry.setUint8(0, w); entry.setUint8(1, h);
+            entry.setUint8(2, 0); entry.setUint8(3, 0);
+            entry.setUint16(4, 1, true); entry.setUint16(6, 32, true);
+            entry.setUint32(8, fileSize, true); entry.setUint32(12, 22, true);
             return new Blob([header, entry, pngData], { type: 'image/vnd.microsoft.icon' });
         }
 
-        // --- EXPORT JSON ---
-        function rgbToHex(col) {
-            if(!col) return '#ffffff';
-            if(col.charAt(0)=='r'){
-                col=col.replace('rgb(','').replace(')','').split(',');
-                var r=parseInt(col[0], 10).toString(16);
-                var g=parseInt(col[1], 10).toString(16);
-                var b=parseInt(col[2], 10).toString(16);
-                r=r.length==1?'0'+r:r; g=g.length==1?'0'+g:g; b=b.length==1?'0'+b:b;
-                return '#'+r+g+b;
-            }
-            return col;
-        }
+        // --- JSON LOGIC ---
 
-        copyJsonBtn.addEventListener('click', () => {
+        function getJsonData() {
             const width = parseInt(widthInput.value);
             const height = parseInt(heightInput.value);
             const pixels = Array.from(document.querySelectorAll('.pixel')).map(p => {
-                return rgbToHex(p.style.backgroundColor);
+                // normalize colors
+                let c = p.style.backgroundColor;
+                if(!c) c = '#ffffff';
+                return c;
             });
+            return { width, height, pixels };
+        }
 
-            const data = { width, height, pixels };
+        // 1. Copy Text
+        copyJsonBtn.addEventListener('click', () => {
+            const data = getJsonData();
             const jsonString = JSON.stringify(data, null, 2);
-            
             navigator.clipboard.writeText(jsonString).then(() => {
                 const originalText = copyJsonBtn.innerText;
                 copyJsonBtn.innerText = "Copied!";
@@ -509,7 +551,63 @@
                     copyJsonBtn.innerText = originalText;
                     copyJsonBtn.style.backgroundColor = "#f39c12";
                 }, 1500);
-            }).catch(err => alert("Failed to copy JSON."));
+            });
+        });
+
+        // 2. Download File
+        saveJsonFileBtn.addEventListener('click', () => {
+            const data = getJsonData();
+            const jsonString = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            downloadBlob(blob, 'pixel-art.json');
+        });
+
+        // 3. Import (Modal)
+        importBtn.addEventListener('click', () => {
+            importModal.classList.remove('hidden');
+            importText.value = ''; // clear previous
+            importText.focus();
+        });
+
+        cancelImportBtn.addEventListener('click', () => {
+            importModal.classList.add('hidden');
+        });
+
+        loadTextBtn.addEventListener('click', () => {
+            const text = importText.value;
+            if(!text.trim()) return;
+
+            try {
+                const data = JSON.parse(text);
+                if (!data.width || !data.height || !data.pixels) {
+                    alert('Invalid JSON format');
+                    return;
+                }
+                
+                // Update inputs
+                widthInput.value = data.width;
+                heightInput.value = data.height;
+
+                // Create Grid
+                makeGrid();
+
+                // Fill Pixels
+                const pixels = document.querySelectorAll('.pixel');
+                data.pixels.forEach((color, index) => {
+                    if (pixels[index]) pixels[index].style.backgroundColor = color;
+                });
+
+                saveState(); // Save to undo history
+                importModal.classList.add('hidden');
+
+            } catch (e) {
+                alert('Error parsing JSON: ' + e.message);
+            }
+        });
+
+        // Close modal on click outside
+        importModal.addEventListener('click', (e) => {
+            if(e.target === importModal) importModal.classList.add('hidden');
         });
 
         // Init
